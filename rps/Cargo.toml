@@ -1,5 +1,5 @@
 [package]
-name = "rps"
+name = "counter"
 version = "0.1.0"
 authors = ["nelli"]
 edition = "2018"
