@@ -77,7 +77,9 @@ pub fn try_start_game(
                     opponent_move: None,
                     game_result: None,
                 }),
-            None => return Err(StdError::generic_err("Something went wrong starting the game, could not update state.")),
+            None => return Err(StdError::generic_err(
+                    "Something went wrong starting the game, could not update state."
+                )),
         }
     };
 
@@ -142,7 +144,10 @@ mod tests {
         let _res = instantiate(deps.as_mut(), mock_env(), &creator).unwrap();
 
         // Check the function is validating addresses correctly
-        let msg = ExecuteMsg::StartGame { opponent: Addr::unchecked(String::from("")), host_move: GameMove::Rock{} };
+        let msg = ExecuteMsg::StartGame { 
+            opponent: Addr::unchecked(String::from("")), 
+            host_move: GameMove::Rock{} 
+        };
         let res = execute(deps.as_mut(), mock_env(), &creator, msg);
         match res {
             Err(ContractError::Invalid {}) => {},
@@ -150,7 +155,10 @@ mod tests {
         }
         
         // Check the function is validating addresses correctly
-        let msg = ExecuteMsg::StartGame { opponent: Addr::unchecked(String::from("Opponent")), host_move: GameMove::Rock{} };
+        let msg = ExecuteMsg::StartGame { 
+            opponent: Addr::unchecked(String::from("Opponent")), 
+            host_move: GameMove::Rock{} 
+        };
         let res = execute(deps.as_mut(), mock_env(), &observor, msg);
         match res {
             Err(ContractError::Unauthorized {}) => {},
@@ -158,7 +166,10 @@ mod tests {
         }
 
         // Check the function is validating addresses correctly
-        let msg = ExecuteMsg::StartGame { opponent: Addr::unchecked(String::from("Opponent")), host_move: GameMove::Rock{} };
+        let msg = ExecuteMsg::StartGame { 
+            opponent: Addr::unchecked(String::from("Opponent")), 
+            host_move: GameMove::Rock{} 
+        };
         let _res = execute(deps.as_mut(), mock_env(), &creator, msg);
 
         // Opponent address should be opponent
