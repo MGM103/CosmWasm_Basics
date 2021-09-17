@@ -21,6 +21,8 @@ pub enum QueryMsg {
     GetOpponent {},
     //GetMove returns the last move the owner of the contract made
     GetMove {},
+    //GetOwner returns the owner of the game being played
+    GetOwner {},
 }
 
 // We define a custom struct for each query response
@@ -33,6 +35,11 @@ pub struct MoveResponse {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
 pub struct OpponentResponse {
     pub opponent: Addr,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]
+pub struct OwnerResponse {
+    pub owner: Addr,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, JsonSchema)]

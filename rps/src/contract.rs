@@ -3,14 +3,14 @@ use cosmwasm_std::entry_point;
 use cosmwasm_std::{to_binary, Binary, Deps, DepsMut, Env, MessageInfo, Response, StdResult, Addr, StdError};
 
 use crate::error::ContractError;
-use crate::msg::{MoveResponse, ExecuteMsg, QueryMsg, OpponentResponse, GameMove};
-use crate::state::{GameState, STATE};
+use crate::msg::{MoveResponse, ExecuteMsg, QueryMsg, OpponentResponse, GameMove, OwnerResponse};
+use crate::state::{GameState, Ownership, STATE, OWNER};
 
 #[cfg_attr(not(feature = "library"), entry_point)]
 pub fn instantiate(
     deps: DepsMut,
     _env: Env,
-    info: MessageInfo,
+    info: &MessageInfo,
 ) -> Result<Response, ContractError> {
 
     let state = GameState {
@@ -21,11 +21,17 @@ pub fn instantiate(
         game_result: None,
     };
 
+    let ownership = Ownership {
+        owner: info.sender.clone(),
+    };
+
     STATE.save(deps.storage, &info.sender, &state)?;
+    OWNER.save(deps.storage, &ownership)?;
 
     Ok(Response::new()
         .add_attribute("method", "instantiate")
         .add_attribute("host", &info.sender)
+        .add_attribute("owner", &info.sender)
     )
 }
 
@@ -33,9 +39,9 @@ pub fn instantiate(
 pub fn execute(
     deps: DepsMut,
     _env: Env,
-    info: MessageInfo,
+    info: &MessageInfo,
     msg: ExecuteMsg,
-) -> StdResult<Response> {
+) -> Result<Response, ContractError> {
     match msg {
         ExecuteMsg::StartGame {opponent, host_move} => try_start_game(deps, info, opponent, host_move),
     }
@@ -43,14 +49,24 @@ pub fn execute(
 
 pub fn try_start_game(
     deps: DepsMut, 
-    info: MessageInfo,
+    info: &MessageInfo,
     opponent: Addr,
     host_move: GameMove,
-) -> StdResult<Response> {
+) -> Result<Response, ContractError> {
 
-    let opponent_addr = deps.api.addr_validate(opponent.as_str())?;
+    let opponent_addr = deps.api.addr_validate(opponent.as_str());
 
-    //let state = STATE.load(deps.storage, &info.sender);
+    //Error checking the validation and throwing custom error if needed
+    let opponent_addr = match opponent_addr {
+        Err(_e) => return Err(ContractError::Invalid{}),
+        _ => opponent_addr.unwrap(),
+    };
+
+    let owner_info = OWNER.load(deps.storage)?;
+
+    if owner_info.owner != info.sender {
+        return Err(ContractError::Unauthorized {});
+    }
 
     let updated_state = |state: Option<GameState>| -> StdResult<GameState> {
         match state {
@@ -71,21 +87,27 @@ pub fn try_start_game(
 }
 
 #[cfg_attr(not(feature = "library"), entry_point)]
-pub fn query(deps: Deps, _env: Env, info: MessageInfo, msg: QueryMsg) -> StdResult<Binary> {
+pub fn query(deps: Deps, _env: Env, info: &MessageInfo, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::GetMove {} => to_binary(&query_move(deps, info)?),
         QueryMsg::GetOpponent {} => to_binary(&query_opponent(deps, info)?),
+        QueryMsg::GetOwner {} => to_binary(&query_owner(deps)?),
     }
 }
 
-fn query_move(deps: Deps, info: MessageInfo) -> StdResult<MoveResponse> {
+fn query_move(deps: Deps, info: &MessageInfo) -> StdResult<MoveResponse> {
     let state = STATE.load(deps.storage, &info.sender)?;
     Ok(MoveResponse { move_type: state.host_move.unwrap() })
 }
 
-fn query_opponent(deps: Deps, info: MessageInfo) -> StdResult<OpponentResponse> {
+fn query_opponent(deps: Deps, info: &MessageInfo) -> StdResult<OpponentResponse> {
     let state = STATE.load(deps.storage, &info.sender)?;
     Ok(OpponentResponse {opponent: state.opponent.unwrap()})
+}
+
+fn query_owner(deps: Deps) -> StdResult<OwnerResponse> {
+    let owner_addr = OWNER.load(deps.storage)?;
+    Ok(OwnerResponse {owner: owner_addr.owner})
 }
 
 #[cfg(test)]
@@ -103,23 +125,55 @@ mod tests {
         let info = mock_info("Creator", &coins(1000, "uusd"));
 
         // we can just call .unwrap() to assert this was a success
-        let res = instantiate(deps.as_mut(), mock_env(), info).unwrap();
+        let res = instantiate(deps.as_mut(), mock_env(), &info).unwrap();
         assert_eq!(0, res.messages.len());
+    }
 
-        // only the original creator can reset the counter
-        let host_info = mock_info("Creator", &coins(20000, "uusd"));
-        let host_info1 = mock_info("Creator", &coins(20000, "uusd"));
+    #[test]
+    fn start_game(){
+        let mut deps = mock_dependencies(&[]);
+
+        let _msg = InstantiateMsg {};
+        let creator = mock_info("Creator", &coins(1000, "uusd"));
+        let observor = mock_info("Observor", &coins(1000, "uusd"));
+        // let opponent = mock_info("Opponent", &coins(1000, "uusd"));
+
+        // we can just call .unwrap() to assert this was a success
+        let _res = instantiate(deps.as_mut(), mock_env(), &creator).unwrap();
+
+        // Check the function is validating addresses correctly
+        let msg = ExecuteMsg::StartGame { opponent: Addr::unchecked(String::from("")), host_move: GameMove::Rock{} };
+        let res = execute(deps.as_mut(), mock_env(), &creator, msg);
+        match res {
+            Err(ContractError::Invalid {}) => {},
+            _ => panic!("Invalid opponent address not picked up!"),
+        }
+        
+        // Check the function is validating addresses correctly
         let msg = ExecuteMsg::StartGame { opponent: Addr::unchecked(String::from("Opponent")), host_move: GameMove::Rock{} };
-        let _res = execute(deps.as_mut(), mock_env(), host_info, msg).unwrap();
+        let res = execute(deps.as_mut(), mock_env(), &observor, msg);
+        match res {
+            Err(ContractError::Unauthorized {}) => {},
+            _ => panic!("Invalid opponent address not picked up!"),
+        }
 
-        // Opponent address should not be opponent
-        let res = query(deps.as_ref(), mock_env(), host_info1, QueryMsg::GetOpponent {}).unwrap();
+        // Check the function is validating addresses correctly
+        let msg = ExecuteMsg::StartGame { opponent: Addr::unchecked(String::from("Opponent")), host_move: GameMove::Rock{} };
+        let _res = execute(deps.as_mut(), mock_env(), &creator, msg);
+
+        // Opponent address should be opponent
+        let res = query(deps.as_ref(), mock_env(), &creator, QueryMsg::GetOpponent {}).unwrap();
         let value: OpponentResponse = from_binary(&res).unwrap();
         assert_eq!("Opponent", value.opponent);
 
         // Move should now be rock
-        let res = query(deps.as_ref(), mock_env(), mock_info("Creator", &coins(20000, "uusd")), QueryMsg::GetMove {}).unwrap();
+        let res = query(deps.as_ref(), mock_env(), &creator, QueryMsg::GetMove {}).unwrap();
         let value: MoveResponse = from_binary(&res).unwrap();
         assert_eq!(GameMove::Rock {}, value.move_type);
+
+        //Owner should be Creator
+        let res = query(deps.as_ref(), mock_env(), &creator, QueryMsg::GetOwner {}).unwrap();
+        let value: OwnerResponse = from_binary(&res).unwrap();
+        assert_eq!("Creator", value.owner);
     }
 }
